@@ -1,0 +1,42 @@
+name: Inspect public reference website
+on:
+  push:
+    paths:
+      - .github/workflows/inspect-reference.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect original public HTML and assets
+        run: python3 scripts/inspect_public.py
+      - name: Capture rendered pages with headless Chrome
+        shell: bash
+        run: |
+          set +e
+          BROWSER="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          echo "CHROME: $BROWSER"
+          if [ -n "$BROWSER" ]; then
+            timeout 50s "$BROWSER" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars --window-size=1440,960 --virtual-time-budget=9000 --screenshot=reference-capture/login.png --dump-dom https://staryuki.com/login > reference-capture/login-rendered.html 2> reference-capture/login-chrome.log
+            timeout 50s "$BROWSER" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --hide-scrollbars --window-size=1440,960 --virtual-time-budget=9000 --screenshot=reference-capture/home.png --dump-dom https://staryuki.com/ > reference-capture/home-rendered.html 2> reference-capture/home-chrome.log
+            python3 - <<'PY'
+          import os,re
+          for name in ("login","home"):
+              path=f"reference-capture/{name}-rendered.html"
+              if os.path.exists(path):
+                  s=open(path,errors="replace").read()
+                  print("RENDER",name,"LEN",len(s),"BODY_SAMPLE",repr(s[:2200]))
+                  print("RENDER",name,"TEXT",re.sub(r"<[^>]*>"," ",s)[:2200])
+                  print("RENDER",name,"BUTTONS",re.findall(r"<button[^>]*>.*?</button>",s,re.I|re.S)[:18])
+          PY
+          fi
+      - name: Upload inspection results
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-reference-capture
+          path: reference-capture/
+          retention-days: 1
